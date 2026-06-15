@@ -10,7 +10,7 @@ export function HallCallButtons() {
   
   const hasActiveCall = (floor: number, direction: 'up' | 'down') => {
     return hallCalls.some(
-      c => c.fromFloor === floor && c.direction === direction && !c.resolved
+      c => c.fromFloor === floor && c.direction === direction && !c.pickedUp
     );
   };
   

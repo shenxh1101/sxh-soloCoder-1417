@@ -68,6 +68,7 @@ export interface AppState {
   isPaused: boolean;
   simulationSpeed: number;
   peakDirection: 'up' | 'down';
+  simulationTimeMs: number;
 }
 
 export interface FloorCall {

@@ -11,28 +11,10 @@ import { COLORS, BUILDING_CONFIG, ELEVATOR_CONFIG } from '../../config/constants
 
 function SceneUpdater() {
   const update = useElevatorStore(state => state.update);
-  const isRunning = useElevatorStore(state => state.isRunning);
-  const isPaused = useElevatorStore(state => state.isPaused);
-  const processPassengerBoarding = useElevatorStore(state => state.processPassengerBoarding);
-  const processPassengerAlighting = useElevatorStore(state => state.processPassengerAlighting);
-  const elevators = useElevatorStore(state => state.elevators);
-  
-  const prevDoorStates = useRef<Record<string, boolean>>({});
   
   useFrame(() => {
     const currentTime = performance.now();
     update(currentTime);
-    
-    for (const elevator of elevators) {
-      const prevDoorOpen = prevDoorStates.current[elevator.id] || false;
-      
-      if (elevator.doorOpen && !prevDoorOpen) {
-        processPassengerAlighting(elevator.id);
-        processPassengerBoarding(elevator.id);
-      }
-      
-      prevDoorStates.current[elevator.id] = elevator.doorOpen;
-    }
   });
   
   return null;
