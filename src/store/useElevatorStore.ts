@@ -91,7 +91,8 @@ function reassignWaitingPassengers(
   elevators: Elevator[],
   strategy: SchedulingStrategy,
   peakDirection: 'up' | 'down',
-  simTime: number
+  simTime: number,
+  excludeElevatorId?: string
 ): { passengers: Passenger[]; hallCalls: HallCall[]; elevators: Elevator[] } {
   let newPassengers = [...passengers];
   let newHallCalls = [...hallCalls];
@@ -100,13 +101,13 @@ function reassignWaitingPassengers(
   const waitingPassengers = newPassengers.filter(p => p.state === 'waiting');
   
   for (const passenger of waitingPassengers) {
-    const existingCall = newHallCalls.find(
-      c => c.passengerId === passenger.id && !c.resolved
+    let passengerCall = newHallCalls.find(
+      c => c.passengerId === passenger.id
     );
     
-    if (!existingCall) {
+    if (!passengerCall) {
       const direction = passenger.toFloor > passenger.fromFloor ? 'up' : 'down';
-      const newCall: HallCall = {
+      passengerCall = {
         id: Date.now() + Math.random(),
         fromFloor: passenger.fromFloor,
         direction,
@@ -118,40 +119,35 @@ function reassignWaitingPassengers(
         resolvedTime: null,
         passengerId: passenger.id,
       };
+      newHallCalls.push(passengerCall);
+    }
+    
+    if (passengerCall.pickedUp) {
+      continue;
+    }
+    
+    const needReassign = 
+      !passengerCall.assignedElevator ||
+      (excludeElevatorId && passengerCall.assignedElevator === excludeElevatorId);
+    
+    if (needReassign) {
+      passengerCall.assignedElevator = null;
+      passenger.elevatorId = null;
       
       const scheduler = getScheduler(strategy);
       const assignedId = scheduler.selectElevator(
-        newCall,
+        passengerCall,
         newElevators,
         newHallCalls,
         peakDirection
       );
       
       if (assignedId) {
-        newCall.assignedElevator = assignedId;
+        passengerCall.assignedElevator = assignedId;
         passenger.elevatorId = assignedId;
         const idx = newElevators.findIndex(e => e.id === assignedId);
         if (idx !== -1) {
           newElevators[idx] = addTargetFloor(newElevators[idx], passenger.fromFloor);
-        }
-      }
-      
-      newHallCalls.push(newCall);
-    } else if (!existingCall.assignedElevator) {
-      const scheduler = getScheduler(strategy);
-      const assignedId = scheduler.selectElevator(
-        existingCall,
-        newElevators,
-        newHallCalls,
-        peakDirection
-      );
-      
-      if (assignedId) {
-        existingCall.assignedElevator = assignedId;
-        passenger.elevatorId = assignedId;
-        const idx = newElevators.findIndex(e => e.id === assignedId);
-        if (idx !== -1) {
-          newElevators[idx] = addTargetFloor(newElevators[idx], existingCall.fromFloor);
         }
       }
     }
@@ -358,20 +354,35 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
           result.elevator.load = newLoad;
         }
         
+        let elevatorDirection: 'up' | 'down' | 'idle';
+        if (result.elevator.targetFloors.length > 0) {
+          elevatorDirection = result.elevator.currentFloor < result.elevator.targetFloors[0] ? 'up' : 'down';
+        } else {
+          elevatorDirection = 'idle';
+        }
+        
         const manualCallsHere = newHallCalls.filter(
           c => c.fromFloor === arrivedFloor && 
                !c.pickedUp && 
                c.passengerId === null
         );
         for (const call of manualCallsHere) {
-          call.pickedUp = true;
-          call.pickedUpTime = newSimTime;
+          const assignedToMe = call.assignedElevator === elevator.id;
+          const directionMatch = 
+            call.assignedElevator === null && 
+            (elevatorDirection === 'idle' || elevatorDirection === call.direction);
+          
+          if (assignedToMe || directionMatch) {
+            call.pickedUp = true;
+            call.pickedUpTime = newSimTime;
+            if (assignedToMe && call.assignedElevator) {
+            }
+          }
         }
         
         const waitingPassengersHere = newPassengers.filter(
           p => p.state === 'waiting' && 
-               p.fromFloor === arrivedFloor &&
-               (p.elevatorId === elevator.id || p.elevatorId === null)
+               p.fromFloor === arrivedFloor
         );
         
         let currentLoad = result.elevator.load;
@@ -383,9 +394,11 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
               c.passengerId === passenger.id && !c.pickedUp
             );
             
-            const canBoard = passengerCall && 
-              (passengerCall.assignedElevator === elevator.id || 
-               passengerCall.assignedElevator === null);
+            const direction = passenger.toFloor > passenger.fromFloor ? 'up' : 'down';
+            const directionConsistent = 
+              elevatorDirection === 'idle' || elevatorDirection === direction;
+            
+            const canBoard = passengerCall && directionConsistent;
             
             if (canBoard) {
               currentLoad += passenger.weight;
@@ -429,7 +442,8 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
             otherElevators,
             state.strategy,
             state.peakDirection,
-            newSimTime
+            newSimTime,
+            elevator.id
           );
           newPassengers = reassigned.passengers;
           newHallCalls = reassigned.hallCalls;
@@ -486,6 +500,31 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
           }
         }
       }
+    }
+    
+    for (let pi = 0; pi < newPassengers.length; pi++) {
+      const p = newPassengers[pi];
+      const callForP = newHallCalls.find(c => c.passengerId === p.id);
+      
+      if (!callForP) continue;
+      
+      if (p.state === 'waiting' && callForP.pickedUp && !callForP.resolved) {
+        p.state = 'riding';
+        p.elevatorId = callForP.assignedElevator;
+        if (!p.boardedAt) p.boardedAt = newSimTime;
+      }
+      
+      if (p.state === 'riding' && callForP.resolved) {
+        p.state = 'completed';
+        if (!p.exitedAt) p.exitedAt = newSimTime;
+      }
+      
+      if ((p.state === 'waiting' || p.state === 'riding') && callForP.resolved) {
+        p.state = 'completed';
+        if (!p.exitedAt) p.exitedAt = newSimTime;
+      }
+      
+      newPassengers[pi] = { ...p };
     }
     
     newStatistics = updateStatistics(
