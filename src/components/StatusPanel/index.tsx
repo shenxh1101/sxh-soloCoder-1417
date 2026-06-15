@@ -6,6 +6,7 @@ function ElevatorCard({ elevatorId }: { elevatorId: string }) {
   const elevator = useElevatorStore(state => 
     state.elevators.find(e => e.id === elevatorId)
   );
+  const addCarCall = useElevatorStore(state => state.addCarCall);
   
   if (!elevator) return null;
   
@@ -27,6 +28,15 @@ function ElevatorCard({ elevatorId }: { elevatorId: string }) {
     if (direction === 'up') return <ArrowUp className="w-4 h-4" />;
     if (direction === 'down') return <ArrowDown className="w-4 h-4" />;
     return <span className="w-4 h-4 block" />;
+  };
+  
+  const isTargetFloor = (floor: number) => elevator.targetFloors.includes(floor);
+  const isCurrentFloor = (floor: number) => elevator.currentFloor === floor;
+  
+  const handleFloorButtonClick = (floor: number) => {
+    if (!isTargetFloor(floor) && !isCurrentFloor(floor)) {
+      addCarCall({ elevatorId, floor });
+    }
   };
 
   return (
@@ -56,6 +66,30 @@ function ElevatorCard({ elevatorId }: { elevatorId: string }) {
             {elevator.currentFloor}
           </div>
           <div className="text-xs text-slate-500 mt-1">当前楼层</div>
+        </div>
+      </div>
+      
+      <div className="space-y-1">
+        <div className="text-xs text-slate-500">轿厢按钮</div>
+        <div className="grid grid-cols-3 gap-1">
+          {[5, 4, 3, 2, 1, 0].map((floor) => (
+            <button
+              key={floor}
+              onClick={() => handleFloorButtonClick(floor)}
+              disabled={isCurrentFloor(floor)}
+              className={`
+                py-1.5 rounded font-mono text-sm font-bold transition-all duration-200
+                ${isCurrentFloor(floor) 
+                  ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
+                  : isTargetFloor(floor)
+                    ? 'bg-cyan-500/30 border border-cyan-500 text-cyan-400 shadow-lg shadow-cyan-500/20'
+                    : 'bg-slate-700 border border-slate-600 text-slate-300 hover:border-cyan-500 hover:text-cyan-400'
+                }
+              `}
+            >
+              {floor}
+            </button>
+          ))}
         </div>
       </div>
       

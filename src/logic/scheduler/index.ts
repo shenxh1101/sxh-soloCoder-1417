@@ -61,7 +61,7 @@ export function estimateArrivalTime(
   }).length;
   
   const assignedCalls = allCalls.filter(
-    c => c.assignedElevator === elevator.id && !c.resolved
+    c => c.assignedElevator === elevator.id && !c.pickedUp
   ).length;
   
   return distance * 2 + stopsOnWay * 3 + assignedCalls * 2;

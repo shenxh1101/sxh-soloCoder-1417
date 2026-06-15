@@ -20,7 +20,7 @@ export const balancedScheduler: Scheduler = {
       const suitable = isSuitableDirection(elevator, hallCall.fromFloor, hallCall.direction);
       const loadRatio = elevator.load / elevator.capacity;
       const assignedCalls = allCalls.filter(
-        c => c.assignedElevator === elevator.id && !c.resolved
+        c => c.assignedElevator === elevator.id && !c.pickedUp
       ).length;
       const estimatedTime = estimateArrivalTime(elevator, hallCall.fromFloor, allCalls);
       

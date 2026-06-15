@@ -36,6 +36,9 @@ interface ElevatorStore extends AppState {
   
   processPassengerBoarding: (elevatorId: string) => void;
   processPassengerAlighting: (elevatorId: string) => void;
+  markHallCallAsPickedUp: (hallCallId: number) => void;
+  markTripAsCompleted: (passengerId: number) => void;
+  getWaitingPassengersForElevator: (elevatorId: string, floor: number) => Passenger[];
 }
 
 const createInitialState = (): Omit<
@@ -54,6 +57,9 @@ const createInitialState = (): Omit<
   | 'update'
   | 'processPassengerBoarding'
   | 'processPassengerAlighting'
+  | 'markHallCallAsPickedUp'
+  | 'markTripAsCompleted'
+  | 'getWaitingPassengersForElevator'
 > => {
   resetCounters();
   return {
@@ -126,7 +132,7 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
   addHallCall: (floor: number, direction: 'up' | 'down') => {
     const state = get();
     const existingCall = state.hallCalls.find(
-      c => c.fromFloor === floor && c.direction === direction && !c.resolved
+      c => c.fromFloor === floor && c.direction === direction && !c.pickedUp
     );
     
     if (existingCall) return;
@@ -181,18 +187,19 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
       const waitingPassengers = state.passengers.filter(
         p => p.state === 'waiting' && 
              p.fromFloor === elevator.currentFloor &&
-             p.elevatorId === null
+             (p.elevatorId === elevatorId || p.elevatorId === null)
       );
       
       const hallCallsForFloor = state.hallCalls.filter(
         c => c.fromFloor === elevator.currentFloor && 
-             !c.resolved &&
+             !c.pickedUp &&
              c.assignedElevator === elevatorId
       );
       
       const now = Date.now();
       let newLoad = elevator.load;
       const boardingPassengers: Passenger[] = [];
+      const pickedUpCallIds: number[] = [];
       
       for (const passenger of waitingPassengers) {
         if (newLoad + passenger.weight <= elevator.capacity) {
@@ -201,7 +208,10 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
             c.direction === direction && c.passengerId === passenger.id
           );
           
-          if (matchingCall || hallCallsForFloor.length === 0) {
+          const hasMatchingCall = matchingCall !== undefined;
+          const isManualCall = hallCallsForFloor.length === 0 && passenger.elevatorId === null;
+          
+          if (hasMatchingCall || isManualCall) {
             newLoad += passenger.weight;
             boardingPassengers.push({
               ...passenger,
@@ -209,6 +219,9 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
               elevatorId,
               boardedAt: now,
             });
+            if (matchingCall) {
+              pickedUpCallIds.push(matchingCall.id);
+            }
           }
         }
       }
@@ -219,10 +232,8 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
       });
       
       const updatedHallCalls = state.hallCalls.map(c => {
-        if (c.fromFloor === elevator.currentFloor && 
-            c.assignedElevator === elevatorId && 
-            !c.resolved) {
-          return { ...c, resolved: true, resolvedTime: now };
+        if (pickedUpCallIds.includes(c.id)) {
+          return { ...c, pickedUp: true, pickedUpTime: now };
         }
         return c;
       });
@@ -261,12 +272,20 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
         p => p.toFloor !== elevator.currentFloor
       );
       
+      const completedPassengerIds = alightingPassengers.map(p => p.id);
+      
       const updatedPassengers = state.passengers.map(p => {
-        const alighting = alightingPassengers.find(ap => ap.id === p.id);
-        if (alighting) {
-          return { ...alighting, state: 'completed' as const, exitedAt: now };
+        if (completedPassengerIds.includes(p.id)) {
+          return { ...p, state: 'completed' as const, exitedAt: now };
         }
         return p;
+      });
+      
+      const updatedHallCalls = state.hallCalls.map(c => {
+        if (c.passengerId !== null && completedPassengerIds.includes(c.passengerId) && !c.resolved) {
+          return { ...c, resolved: true, resolvedTime: now };
+        }
+        return c;
       });
       
       const newLoad = remainingPassengers.reduce((sum, p) => sum + p.weight, 0);
@@ -278,8 +297,46 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
             : e
         ),
         passengers: updatedPassengers,
+        hallCalls: updatedHallCalls,
       };
     });
+  },
+  
+  markHallCallAsPickedUp: (hallCallId: number) => {
+    set(state => ({
+      hallCalls: state.hallCalls.map(c => 
+        c.id === hallCallId 
+          ? { ...c, pickedUp: true, pickedUpTime: Date.now() } 
+          : c
+      ),
+    }));
+  },
+  
+  markTripAsCompleted: (passengerId: number) => {
+    set(state => {
+      const now = Date.now();
+      return {
+        passengers: state.passengers.map(p => 
+          p.id === passengerId 
+            ? { ...p, state: 'completed' as const, exitedAt: now } 
+            : p
+        ),
+        hallCalls: state.hallCalls.map(c => 
+          c.passengerId === passengerId && !c.resolved
+            ? { ...c, resolved: true, resolvedTime: now }
+            : c
+        ),
+      };
+    });
+  },
+  
+  getWaitingPassengersForElevator: (elevatorId: string, floor: number) => {
+    const state = get();
+    return state.passengers.filter(
+      p => p.state === 'waiting' && 
+           p.fromFloor === floor &&
+           (p.elevatorId === elevatorId || p.elevatorId === null)
+    );
   },
   
   update: (currentTime: number) => {
@@ -363,7 +420,7 @@ export const useElevatorStore = create<ElevatorStore>((set, get) => ({
       }
       
       const unassignedCalls = state.hallCalls.filter(
-        c => !c.assignedElevator && !c.resolved
+        c => !c.assignedElevator && !c.pickedUp
       );
       
       if (unassignedCalls.length > 0) {

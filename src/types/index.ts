@@ -38,6 +38,8 @@ export interface HallCall {
   direction: 'up' | 'down';
   timestamp: number;
   assignedElevator: string | null;
+  pickedUp: boolean;
+  pickedUpTime: number | null;
   resolved: boolean;
   resolvedTime: number | null;
   passengerId: number | null;

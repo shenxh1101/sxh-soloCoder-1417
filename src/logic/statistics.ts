@@ -25,10 +25,10 @@ export function updateStatistics(
   
   newStats.simulationTime += deltaTime * simulationSpeed / 1000;
   
-  const completedCalls = hallCalls.filter(c => c.resolved && c.resolvedTime);
-  const waitTimes = completedCalls.map(c => {
-    if (c.resolvedTime) {
-      return (c.resolvedTime - c.timestamp) / 1000;
+  const pickedUpCalls = hallCalls.filter(c => c.pickedUp && c.pickedUpTime);
+  const waitTimes = pickedUpCalls.map(c => {
+    if (c.pickedUpTime) {
+      return (c.pickedUpTime - c.timestamp) / 1000;
     }
     return 0;
   }).filter(t => t > 0);
@@ -42,8 +42,14 @@ export function updateStatistics(
   const completedPassengers = passengers.filter(p => p.state === 'completed');
   newStats.totalRides = completedPassengers.length;
   
+  const completedCalls = hallCalls.filter(c => c.resolved && c.resolvedTime);
   newStats.completedRequests = completedCalls.length;
   newStats.totalRequests = hallCalls.length;
+  
+  const rideTimes = completedPassengers
+    .filter(p => p.boardedAt && p.exitedAt)
+    .map(p => ((p.exitedAt! - p.boardedAt!) / 1000));
+  newStats.rideTimes = rideTimes;
   
   return newStats;
 }
